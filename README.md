@@ -2,6 +2,10 @@
 
 Typed dependency injection for Go.
 
+```bash
+go get github.com/MY-RV/goxdi
+```
+
 ```go
 import "github.com/MY-RV/goxdi"
 
@@ -18,6 +22,15 @@ defer scope.Close()
 db := goxdi.MustGet[*DB](scope)
 _ = db
 ```
+
+## Docs
+
+Full guides: [`docs/`](docs/README.md)
+
+- [Overview](docs/overview.md)
+- [Getting started](docs/getting-started.md)
+- [Lifetimes](docs/guide/lifetimes.md)
+- [API reference](docs/reference/api.md)
 
 ## License
 
