@@ -1,0 +1,39 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: Format
+        run: test -z "$(gofmt -l .)"
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test
+        run: go test -race -count=1 ./...
+
+      - name: Coverage
+        run: |
+          go test -count=1 -covermode=atomic \
+            -coverpkg=github.com/MY-RV/goxdi/internal/container,github.com/MY-RV/goxdi \
+            -coverprofile=coverage.out ./...
+          total="$(go tool cover -func=coverage.out | awk '/total:/ {print $NF}')"
+          echo "coverage total: ${total}"
+          test "${total}" = "100.0%"
