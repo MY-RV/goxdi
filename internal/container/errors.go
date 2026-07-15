@@ -7,11 +7,21 @@ import (
 )
 
 var (
-	ErrNotRegistered      = errors.New("service not registered")
-	ErrScopeRequired      = errors.New("scoped service requires an active scope")
-	ErrScopeClosed        = errors.New("scope is closed")
-	ErrAlreadyRegistered  = errors.New("service already registered")
+	// ErrNotRegistered is returned when resolving a type with no Add* registration.
+	ErrNotRegistered = errors.New("service not registered")
+	// ErrScopeRequired is returned when resolving a Scoped type without a Scope.
+	ErrScopeRequired = errors.New("scoped service requires an active scope")
+	// ErrClosed is returned when resolving or closing an already-closed Container or Scope.
+	ErrClosed = errors.New("resolver is closed")
+	// ErrScopeClosed is an alias of ErrClosed kept for compatibility; prefer ErrClosed.
+	ErrScopeClosed = ErrClosed
+	// ErrAlreadyRegistered is returned when Add* is called twice for the same T on one Builder.
+	ErrAlreadyRegistered = errors.New("service already registered")
+	// ErrCircularDependency is returned when a factory graph cycles during construction.
 	ErrCircularDependency = errors.New("circular dependency detected")
+
+	// errFactoryPanicked unblocks singleton singleflight waiters if a factory panics.
+	errFactoryPanicked = errors.New("factory panicked during construction")
 )
 
 func errNotRegistered(t reflect.Type) error {

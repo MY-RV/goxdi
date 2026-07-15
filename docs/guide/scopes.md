@@ -67,8 +67,8 @@ if err := scope.Close(); err != nil {
 
 After `Close`:
 
-- Further resolves on that scope return `ErrScopeClosed`.
-- Calling `Close` again returns `ErrScopeClosed`.
+- Further resolves on that scope return `ErrClosed`.
+- Calling `Close` again returns `ErrClosed`.
 
 Always pair `NewScope` with `defer Close()` at the same layer that opened it.
 
@@ -138,10 +138,14 @@ Scoped types must still go through a scope.
 
 ## Concurrency note
 
-Resolution under a container is serialized with a root mutex (scopes lock the same root mutex). Concurrent units of work should use **separate scopes**, not share one mutable scope across goroutines unless you externalize synchronization.
+The root mutex serializes cache and disposer updates. Factories run **without** holding that mutex so nested `Get` via the factory `Resolver` cannot deadlock.
+
+Concurrent first-time resolve of the **same Singleton** is **singleflighted**: one factory runs; other callers wait and receive the same instance (or error).
+
+Concurrent units of work should use **separate scopes**, not share one mutable scope across goroutines unless you externalize synchronization.
 
 ## Next steps
 
 - [Lifetimes](lifetimes.md) — which lifetime belongs on which type
 - [Resolving](resolving.md) — resolving from root vs scope inside factories
-- [Errors](errors.md) — `ErrScopeRequired`, `ErrScopeClosed`
+- [Errors](errors.md) — `ErrScopeRequired`, `ErrClosed`

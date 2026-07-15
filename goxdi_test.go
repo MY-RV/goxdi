@@ -2,7 +2,10 @@ package goxdi_test
 
 import (
 	"errors"
+	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/MY-RV/goxdi"
 )
@@ -262,8 +265,167 @@ func TestClosedScopeRejectsResolve(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err := goxdi.Get[*db](scope)
+	if !errors.Is(err, goxdi.ErrClosed) {
+		t.Fatalf("expected ErrClosed, got %v", err)
+	}
 	if !errors.Is(err, goxdi.ErrScopeClosed) {
-		t.Fatalf("expected ErrScopeClosed, got %v", err)
+		t.Fatalf("ErrScopeClosed should alias ErrClosed, got %v", err)
 	}
 	_ = root.Close()
+}
+
+func TestContainerDisposesSingletonClosers(t *testing.T) {
+	closed := false
+	b := goxdi.NewBuilder()
+	mustAdd(t, goxdi.AddSingleton(b, func(goxdi.Resolver) (*closerDB, error) {
+		return &closerDB{closed: &closed}, nil
+	}))
+	root := b.Build()
+
+	_ = goxdi.MustGet[*closerDB](root)
+	if closed {
+		t.Fatalf("singleton closer must not run before Container.Close")
+	}
+	if err := root.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if !closed {
+		t.Fatalf("expected singleton closer to run on Container.Close")
+	}
+}
+
+type captiveApp struct{ uow *closerDB }
+
+func TestSingletonCannotCaptureScoped(t *testing.T) {
+	b := goxdi.NewBuilder()
+	mustAdd(t, goxdi.AddScoped(b, func(goxdi.Resolver) (*closerDB, error) {
+		closed := false
+		return &closerDB{closed: &closed}, nil
+	}))
+	mustAdd(t, goxdi.AddSingleton(b, func(r goxdi.Resolver) (*captiveApp, error) {
+		uow, err := goxdi.Get[*closerDB](r)
+		if err != nil {
+			return nil, err
+		}
+		return &captiveApp{uow: uow}, nil
+	}))
+	root := b.Build()
+	defer root.Close()
+
+	scope := root.NewScope()
+	defer scope.Close()
+
+	_, err := goxdi.Get[*captiveApp](scope)
+	if !errors.Is(err, goxdi.ErrScopeRequired) {
+		t.Fatalf("expected ErrScopeRequired for singleton→scoped, got %v", err)
+	}
+}
+
+func TestFactoryResolveViaContainerDoesNotDeadlock(t *testing.T) {
+	b := goxdi.NewBuilder()
+	mustAdd(t, goxdi.AddSingleton(b, func(goxdi.Resolver) (*db, error) {
+		return &db{name: "db"}, nil
+	}))
+	var root *goxdi.Container
+	mustAdd(t, goxdi.AddSingleton(b, func(goxdi.Resolver) (*repo, error) {
+		return &repo{db: goxdi.MustGet[*db](root)}, nil
+	}))
+	root = b.Build()
+	defer root.Close()
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_ = goxdi.MustGet[*repo](root)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("deadlock: factory Resolve via Container blocked")
+	}
+}
+
+func TestConcurrentSingletonSingleflight(t *testing.T) {
+	started := make(chan struct{})
+	release := make(chan struct{})
+	var builds atomic.Int32
+
+	b := goxdi.NewBuilder()
+	mustAdd(t, goxdi.AddSingleton(b, func(goxdi.Resolver) (*db, error) {
+		builds.Add(1)
+		close(started)
+		<-release
+		return &db{name: "one"}, nil
+	}))
+	root := b.Build()
+	defer root.Close()
+
+	const n = 8
+	results := make([]*db, n)
+	errs := make([]error, n)
+	var wg sync.WaitGroup
+	wg.Add(n)
+	for i := 0; i < n; i++ {
+		i := i
+		go func() {
+			defer wg.Done()
+			results[i], errs[i] = goxdi.Get[*db](root)
+		}()
+	}
+
+	<-started
+	close(release)
+	wg.Wait()
+
+	if builds.Load() != 1 {
+		t.Fatalf("factory ran %d times, want 1", builds.Load())
+	}
+	var first *db
+	for i := 0; i < n; i++ {
+		if errs[i] != nil {
+			t.Fatalf("goroutine %d: %v", i, errs[i])
+		}
+		if first == nil {
+			first = results[i]
+			continue
+		}
+		if results[i] != first {
+			t.Fatalf("goroutine %d got different instance", i)
+		}
+	}
+}
+
+func TestResolveAbortsIfClosedDuringCreate(t *testing.T) {
+	started := make(chan struct{})
+	release := make(chan struct{})
+	closedFlag := false
+
+	b := goxdi.NewBuilder()
+	mustAdd(t, goxdi.AddSingleton(b, func(goxdi.Resolver) (*closerDB, error) {
+		close(started)
+		<-release
+		return &closerDB{closed: &closedFlag}, nil
+	}))
+	root := b.Build()
+
+	errCh := make(chan error, 1)
+	go func() {
+		_, err := goxdi.Get[*closerDB](root)
+		errCh <- err
+	}()
+
+	<-started
+	if err := root.Close(); err != nil {
+		t.Fatal(err)
+	}
+	close(release)
+
+	err := <-errCh
+	if !errors.Is(err, goxdi.ErrClosed) {
+		t.Fatalf("expected ErrClosed, got %v", err)
+	}
+	if !closedFlag {
+		t.Fatalf("orphaned instance created during Close should be closed")
+	}
 }

@@ -1,6 +1,10 @@
 // Package goxdi is a typed dependency-injection library for Go.
 //
 // This root package is the public API. Implementation lives in internal/container.
+//
+// Concurrent first resolve of the same Singleton is singleflighted on the root
+// container. Prefer resolving factory dependencies through the Resolver argument,
+// and use one Scope per unit of work.
 package goxdi
 
 import "github.com/MY-RV/goxdi/internal/container"
@@ -23,6 +27,7 @@ const (
 var (
 	ErrNotRegistered      = container.ErrNotRegistered
 	ErrScopeRequired      = container.ErrScopeRequired
+	ErrClosed             = container.ErrClosed
 	ErrScopeClosed        = container.ErrScopeClosed
 	ErrAlreadyRegistered  = container.ErrAlreadyRegistered
 	ErrCircularDependency = container.ErrCircularDependency

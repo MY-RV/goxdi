@@ -47,6 +47,10 @@ c := goxdi.MustGet[*sql.DB](root)
 
 If the instance implements `io.Closer`, goxdi tracks it on the **root** and closes it during `Container.Close`, in reverse creation order. See [Scopes](scopes.md#disposal-with-iocloser).
 
+### Singleton factories and scoped dependencies
+
+Singleton construction always runs **without** an ambient scope. Resolving a scoped type from inside a singleton factory returns `ErrScopeRequired`. That prevents a process-wide instance from capturing a unit-of-work dependency.
+
 ## Scoped
 
 A scoped instance is unique to one `Scope`. Resolving the same type again in that scope returns the same value. A sibling or nested scope creates its own.
