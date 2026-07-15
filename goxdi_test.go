@@ -2,6 +2,7 @@ package goxdi_test
 
 import (
 	"errors"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -127,17 +128,50 @@ func TestDependencyInjection(t *testing.T) {
 
 func TestFactoryReturningError(t *testing.T) {
 	boom := errors.New("boom")
-	b := goxdi.NewBuilder()
-	mustAdd(t, goxdi.AddSingleton(b, func(goxdi.Resolver) (*db, error) {
-		return nil, boom
-	}))
-	root := b.Build()
-	defer root.Close()
 
-	_, err := goxdi.Get[*db](root)
-	if !errors.Is(err, boom) {
-		t.Fatalf("expected boom, got %v", err)
-	}
+	t.Run("singleton", func(t *testing.T) {
+		b := goxdi.NewBuilder()
+		mustAdd(t, goxdi.AddSingleton(b, func(goxdi.Resolver) (*db, error) {
+			return nil, boom
+		}))
+		root := b.Build()
+		defer root.Close()
+
+		_, err := goxdi.Get[*db](root)
+		if !errors.Is(err, boom) {
+			t.Fatalf("expected boom, got %v", err)
+		}
+	})
+
+	t.Run("scoped", func(t *testing.T) {
+		b := goxdi.NewBuilder()
+		mustAdd(t, goxdi.AddScoped(b, func(goxdi.Resolver) (*db, error) {
+			return nil, boom
+		}))
+		root := b.Build()
+		defer root.Close()
+		scope := root.NewScope()
+		defer scope.Close()
+
+		_, err := goxdi.Get[*db](scope)
+		if !errors.Is(err, boom) {
+			t.Fatalf("expected boom, got %v", err)
+		}
+	})
+
+	t.Run("transient", func(t *testing.T) {
+		b := goxdi.NewBuilder()
+		mustAdd(t, goxdi.AddTransient(b, func(goxdi.Resolver) (*db, error) {
+			return nil, boom
+		}))
+		root := b.Build()
+		defer root.Close()
+
+		_, err := goxdi.Get[*db](root)
+		if !errors.Is(err, boom) {
+			t.Fatalf("expected boom, got %v", err)
+		}
+	})
 }
 
 type circA struct{ b *circB }
@@ -349,12 +383,13 @@ func TestFactoryResolveViaContainerDoesNotDeadlock(t *testing.T) {
 func TestConcurrentSingletonSingleflight(t *testing.T) {
 	started := make(chan struct{})
 	release := make(chan struct{})
+	var startOnce sync.Once
 	var builds atomic.Int32
 
 	b := goxdi.NewBuilder()
 	mustAdd(t, goxdi.AddSingleton(b, func(goxdi.Resolver) (*db, error) {
 		builds.Add(1)
-		close(started)
+		closeOnce(&startOnce, started)
 		<-release
 		return &db{name: "one"}, nil
 	}))
@@ -375,6 +410,10 @@ func TestConcurrentSingletonSingleflight(t *testing.T) {
 	}
 
 	<-started
+	// Yield so peers park in awaitInFlight while the leader is still constructing.
+	for i := 0; i < 64; i++ {
+		runtime.Gosched()
+	}
 	close(release)
 	wg.Wait()
 
@@ -399,11 +438,12 @@ func TestConcurrentSingletonSingleflight(t *testing.T) {
 func TestResolveAbortsIfClosedDuringCreate(t *testing.T) {
 	started := make(chan struct{})
 	release := make(chan struct{})
+	var startOnce sync.Once
 	closedFlag := false
 
 	b := goxdi.NewBuilder()
 	mustAdd(t, goxdi.AddSingleton(b, func(goxdi.Resolver) (*closerDB, error) {
-		close(started)
+		closeOnce(&startOnce, started)
 		<-release
 		return &closerDB{closed: &closedFlag}, nil
 	}))
