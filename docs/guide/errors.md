@@ -18,7 +18,8 @@ if errors.Is(err, goxdi.ErrNotRegistered) {
 | `ErrNotRegistered` | Resolving a type that was never `Add*`-ed |
 | `ErrAlreadyRegistered` | Second `Add*` for the same `T` on one builder |
 | `ErrScopeRequired` | Resolving a **scoped** type from the root container |
-| `ErrScopeClosed` | `Get` / `Close` after the scope or root was closed |
+| `ErrClosed` | `Get` / `Close` after the scope or root was closed |
+| `ErrScopeClosed` | Alias of `ErrClosed` (kept for compatibility) |
 | `ErrCircularDependency` | Factory cycle detected during creation |
 
 ## `ErrNotRegistered`
@@ -68,9 +69,9 @@ if errors.Is(err, goxdi.ErrScopeRequired) {
 }
 ```
 
-## `ErrScopeClosed`
+## `ErrClosed` (`ErrScopeClosed`)
 
-Returned when using a closed scope/root, including a second `Close`.
+Returned when using a closed scope/root, including a second `Close`. Prefer `ErrClosed`; `ErrScopeClosed` is the same sentinel.
 
 **Prefer**:
 

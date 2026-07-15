@@ -7,14 +7,24 @@ import (
 )
 
 func TestLifetimeString(t *testing.T) {
-	cases := map[goxdi.Lifetime]string{
-		goxdi.Singleton: "Singleton",
-		goxdi.Scoped:    "Scoped",
-		goxdi.Transient: "Transient",
+	t.Parallel()
+
+	cases := []struct {
+		lifetime goxdi.Lifetime
+		want     string
+	}{
+		{goxdi.Singleton, "Singleton"},
+		{goxdi.Scoped, "Scoped"},
+		{goxdi.Transient, "Transient"},
+		{goxdi.Lifetime(99), "Unknown"},
 	}
-	for l, want := range cases {
-		if got := l.String(); got != want {
-			t.Fatalf("%v: got %q want %q", l, got, want)
-		}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.want, func(t *testing.T) {
+			t.Parallel()
+			if got := tc.lifetime.String(); got != tc.want {
+				t.Fatalf("got %q want %q", got, tc.want)
+			}
+		})
 	}
 }

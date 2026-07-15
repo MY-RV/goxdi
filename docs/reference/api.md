@@ -63,7 +63,8 @@ func MustGet[T any](from Resolver) T
 var (
 	ErrNotRegistered      error
 	ErrScopeRequired      error
-	ErrScopeClosed        error
+	ErrClosed             error
+	ErrScopeClosed        error // alias of ErrClosed
 	ErrAlreadyRegistered  error
 	ErrCircularDependency error
 )

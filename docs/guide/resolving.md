@@ -36,7 +36,7 @@ There is no `TryGet`. Optional dependencies are an application pattern: either r
 
 ## The resolve context inside factories
 
-When goxdi invokes a factory, it passes a `Resolver` tied to the **current** root + optional scope (with the container lock already held). Dependencies resolved through that `r` participate correctly in:
+When goxdi invokes a factory, it passes a `Resolver` tied to the **current** root + optional scope. The container mutex is released while the factory runs so nested `Get` calls do not deadlock. Dependencies resolved through that `r` participate correctly in:
 
 - the active lifetime caches
 - circular-dependency detection
@@ -66,6 +66,8 @@ func(r goxdi.Resolver) (*OrderService, error) {
 	return &OrderService{Repo: goxdi.MustGet[*OrderRepo](outerScope)}, nil
 }
 ```
+
+Prefer `r`. Captured `Container`/`Scope` values do not carry the construction stack, so circular dependencies resolved that way may hang instead of returning `ErrCircularDependency`.
 
 ## Dependency graphs
 
@@ -114,7 +116,7 @@ goxdi does not invent lazy proxies to break cycles. Fix the design:
 
 ## Closed resolvers
 
-Resolving from a closed scope or closed root fails with `ErrScopeClosed`. Create a new scope after close; do not reuse a closed one.
+Resolving from a closed scope or closed root fails with `ErrClosed`. Create a new scope after close; do not reuse a closed one.
 
 ## Next steps
 
